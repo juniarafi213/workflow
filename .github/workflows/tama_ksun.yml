@@ -24,7 +24,7 @@ jobs:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       CHAT_ID: ${{ secrets.CHAT_ID }}
       KERNEL_VER: Stardust-v3.1
-      KERNEL_URL: https://github.com/Sorayukii/stardust_kernel_sony_sdm845
+      KERNEL_URL: https://github.com/juniarafi213/stardust_kernel_sony_sdm845
       KERNEL_BRANCH: master
       CLANG_URL: https://gitlab.com/kei-space/clang/r498229b.git
       CLANG_BRANCH: master
