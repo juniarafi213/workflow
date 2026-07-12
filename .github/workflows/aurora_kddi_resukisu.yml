@@ -68,7 +68,7 @@ jobs:
         DEFCONFIG_PATH="arch/arm64/configs/$CONFIG_NAME"
         echo "CONFIG_KSU=y" >> "${DEFCONFIG_PATH}"
         #echo "CONFIG_KSU_MANUAL_HOOK=y" >> "${DEFCONFIG_PATH}"
-        echo "CONFIG_KSU_SUSFS=y" >> "${DEFCONFIG_PATH}"
+        echo "CONFIG_KSU_SUSFS=n" >> "${DEFCONFIG_PATH}"
         echo "CONFIG_KPM=n" >> "${DEFCONFIG_PATH}"
         sed -i "s/CONFIG_LOCALVERSION=\"-Stardust\"/CONFIG_LOCALVERSION=\"-$KERNEL_VER\"/" "$DEFCONFIG_PATH"
         sed -i "s/^CONFIG_WORKINGSET_PROTECTION=.*/CONFIG_WORKINGSET_PROTECTION=n/" "$DEFCONFIG_PATH"
