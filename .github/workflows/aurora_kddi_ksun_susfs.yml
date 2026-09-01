@@ -18,7 +18,7 @@ jobs:
       CHAT_ID: ${{ secrets.CHAT_ID }}
       KERNEL_VER: Stardust_v2.0rc4
       KERNEL_URL: https://github.com/Sorayukii/stardust_kernel_sony_sdm845
-      KERNEL_BRANCH: ksuntest2
+      KERNEL_BRANCH: ${{ github.event.inputs.branch }}
       CLANG_URL: https://gitlab.com/Sorayukii/aosp-clang.git
       CLANG_BRANCH: 17
       KSU_URL: https://raw.githubusercontent.com/Sorayukii/KernelSU-Next/dev/kernel/setup.sh
