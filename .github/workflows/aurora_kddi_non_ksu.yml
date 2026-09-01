@@ -2,6 +2,11 @@ name: AURORA KDDI NON-KSU
 
 on:
   workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch kernel yang akan di-build"
+        required: true
+        default: "master"
 
 jobs:
   build:

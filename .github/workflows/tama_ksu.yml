@@ -3,6 +3,11 @@ name: TAMA KSU
 
 on:
   workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch kernel yang akan di-build"
+        required: true
+        default: "master"
 
 jobs:
   build:
@@ -26,7 +31,7 @@ jobs:
       CHAT_ID: ${{ secrets.CHAT_ID }}
       KERNEL_VER: Stardust-v3.1
       KERNEL_URL: https://github.com/juniarafi213/stardust_kernel_sony_sdm845
-      KERNEL_BRANCH: master
+      KERNEL_BRANCH: ${{ github.event.inputs.branch }}
       CLANG_URL: https://gitlab.com/kei-space/clang/r498229b.git
       CLANG_BRANCH: master
       KSU_URL: https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh
