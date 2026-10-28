@@ -1,0 +1,237 @@
+name: VAYU KSU-Next
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch kernel yang akan di-build"
+        required: true
+        default: "caf-bore"
+      toolchain:
+        description: "Pilihan Toolchain Clang"
+        required: true
+        type: choice
+        options:
+          - "Neutron-Clang"
+          - "AOSP-Clang-r510928"
+          - "AOSP-Clang-r547379"
+        default: "Neutron-Clang"
+      ksun_branch:
+        description: "Branch / Tag KernelSU-Next"
+        required: false
+        default: "next"
+      disable_lto:
+        description: "Nonaktifkan LTO (Lebih cepat & hemat RAM)"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    name: Build Vayu Kernel
+    runs-on: ubuntu-22.04
+
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      CHAT_ID: ${{ secrets.CHAT_ID }}
+      KERNEL_VER: Anymore-BORE
+      KERNEL_URL: https://github.com/juniarafi213/android_kernel_vayu
+      KERNEL_BRANCH: ${{ github.event.inputs.branch }}
+      ANYKERNEL_URL: https://github.com/AnymoreProject/AnyKernel3
+      ANYKERNEL_BRANCH: master
+      KSU_URL: https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh
+
+    steps:
+    - name: Checkout workflow repo
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          bc bison ca-certificates curl flex gcc git libc6-dev libssl-dev \
+          openssl python-is-python3 ssh wget zip sudo make clang \
+          gcc-arm-linux-gnueabi software-properties-common build-essential \
+          libarchive-tools gcc-aarch64-linux-gnu libssl-dev libffi-dev \
+          libncurses5-dev zlib1g zlib1g-dev libreadline-dev libbz2-dev \
+          libsqlite3-dev make gcc pigz python3 cpio lld ccache device-tree-compiler
+
+    - name: Clone kernel source
+      run: |
+        git clone --depth=1 "$KERNEL_URL" -b "$KERNEL_BRANCH" kernel
+        cd kernel
+        echo "KERNEL_DIR=$(pwd)" >> $GITHUB_ENV
+
+    - name: Clone AnyKernel3
+      run: |
+        git clone --depth=1 -b "$ANYKERNEL_BRANCH" "$ANYKERNEL_URL" AnyKernel3
+        echo "ANYKERNEL_DIR=$(pwd)/AnyKernel3" >> $GITHUB_ENV
+
+    - name: Setup Toolchain
+      run: |
+        mkdir -p clang
+        cd clang
+        TOOLCHAIN_CHOICE="${{ github.event.inputs.toolchain }}"
+        echo "Setting up toolchain: $TOOLCHAIN_CHOICE"
+
+        if [ "$TOOLCHAIN_CHOICE" = "Neutron-Clang" ]; then
+          curl -sLO https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman
+          bash antman -S --noprogress
+          bash antman --patch=glibc
+        elif [ "$TOOLCHAIN_CHOICE" = "AOSP-Clang-r510928" ]; then
+          curl -LSs https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r510928.tar.gz -o clang.tar.gz
+          tar -xf clang.tar.gz
+          rm -f clang.tar.gz
+        elif [ "$TOOLCHAIN_CHOICE" = "AOSP-Clang-r547379" ]; then
+          curl -LSs https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-release/clang-r547379.tar.gz -o clang.tar.gz
+          tar -xf clang.tar.gz
+          rm -f clang.tar.gz
+        fi
+
+        cd ..
+        echo "CLANG_DIR=$(pwd)/clang" >> $GITHUB_ENV
+
+    - name: Set up KSUN
+      run: |
+        cd $KERNEL_DIR
+        curl -LSs "$KSU_URL" | bash -s ${{ github.event.inputs.ksun_branch }}
+        echo "CONFIG_KSU=y" >> arch/arm64/configs/vayu_defconfig
+        echo "CONFIG_KSU_SUSFS=y" >> arch/arm64/configs/vayu_defconfig 2>/dev/null || true
+
+    - name: Configure Defconfig & LTO
+      run: |
+        cd $KERNEL_DIR
+        if [ "${{ github.event.inputs.disable_lto }}" = "true" ] || [ "${{ github.event.inputs.disable_lto }}" = true ]; then
+          scripts/config --file arch/arm64/configs/vayu_defconfig \
+            -d LTO \
+            -d LTO_CLANG \
+            -d THINLTO \
+            -e LTO_NONE
+        fi
+
+    - name: Build kernel
+      run: |
+        escape_markdown_v2() { 
+            echo "$1" | sed -e 's/\\/\\\\/g' -e 's/_/\\_/g' -e 's/\*/\\*/g' -e 's/\[/\\[/g' -e 's/\]/\\]/g' -e 's/(/\\(/g' -e 's/)/\\)/g' -e 's/~/\\~/g' -e 's/`/\\`/g' -e 's/>/\\>/g' -e 's/#/\\#/g' -e 's/+/\\+/g' -e 's/-/\\-/g' -e 's/=/\\=/g' -e 's/|/\\|/g' -e 's/{/\\{/g' -e 's/}/\\}/g';
+        }
+
+        send_telegram_message() {
+            local MESSAGE="$1"
+            if [ -n "$BOT_TOKEN" ] && [ -n "$CHAT_ID" ]; then
+              curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+                  -d "chat_id=$CHAT_ID" \
+                  -d "text=$MESSAGE" >/dev/null 2>&1 || true
+            fi
+        }
+
+        send_telegram_file() {
+            local FILE_PATH="$1"
+            local FILE_NAME=$(basename "$FILE_PATH")
+            local ESCAPED_NAME=$(escape_markdown_v2 "$FILE_NAME")
+            local CAPTION="\`$ESCAPED_NAME\`"
+
+            if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ] || [ ! -f "$FILE_PATH" ]; then
+              return 0
+            fi
+
+            local MAX_RETRY=5
+            local RETRY_DELAY=10
+            local COUNT=1
+
+            while [ $COUNT -le $MAX_RETRY ]; do
+                RESPONSE=$(curl --connect-timeout 30 --max-time 600 -s -w "%{http_code}" -o response.json -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" \
+                    -F "chat_id=$CHAT_ID" \
+                    -F "document=@$FILE_PATH" \
+                    -F "caption=$CAPTION" \
+                    -F "parse_mode=MarkdownV2")
+
+                HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+
+                if [ "$HTTP_CODE" -eq 200 ]; then
+                    return 0
+                fi
+
+                COUNT=$((COUNT+1))
+                sleep $RETRY_DELAY
+            done
+
+            send_telegram_message "❌ Upload failed after $MAX_RETRY attempts."
+            exit 1
+        }
+        
+        stop_handler() {
+          send_telegram_message "⚠️ Compilation was unexpectedly stopped for Poco X3 Pro (vayu)!"
+          [ -f "$LOG_FILE" ] && send_telegram_file "$LOG_FILE"
+          exit 1
+        }
+
+        trap stop_handler ERR INT
+
+        cd $KERNEL_DIR
+        LOG_FILE=$KERNEL_DIR/build.log
+        OUT_DIR=$KERNEL_DIR/out
+        CONFIG_NAME="vayu_defconfig"
+        KERNEL_COMMIT_ID=$(git rev-parse --short=7 HEAD)
+        BUILD_DATE=$(date +'%Y%m%d_%H%M')
+        ZIP_NAME="${KERNEL_VER}_vayu-KSUN-${KERNEL_COMMIT_ID}-${BUILD_DATE}.zip"
+        echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+        echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
+
+        send_telegram_message "🔨 Starting kernel compilation for Poco X3 Pro (vayu) on branch $KERNEL_BRANCH | Toolchain: ${{ github.event.inputs.toolchain }}"
+
+        export KBUILD_BUILD_USER=ivy
+        export KBUILD_BUILD_HOST="$KERNEL_COMMIT_ID"
+        export PATH="$CLANG_DIR/bin:$PATH"
+
+        mkdir -p "$OUT_DIR"
+
+        make O="$OUT_DIR" ARCH=arm64 "$CONFIG_NAME"
+        make -j$(nproc --all) \
+          O="$OUT_DIR" \
+          ARCH=arm64 \
+          SUBARCH=arm64 \
+          DTC_EXT=dtc \
+          CLANG_TRIPLE=aarch64-linux-gnu- \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+          LLVM=1 \
+          LLVM_IAS=1 \
+          Image dtbs dtbo.img 2>&1 | tee -a "$LOG_FILE"
+
+        BUILD_RESULT=${PIPESTATUS[0]}
+
+        if [ "$BUILD_RESULT" -ne 0 ]; then
+          send_telegram_message "❌ Compilation failed for Poco X3 Pro (vayu)!"
+          send_telegram_file "$LOG_FILE"
+          exit 1
+        fi
+
+        echo "Packaging kernel with AnyKernel3..."
+        cp "$OUT_DIR/arch/arm64/boot/Image" "$ANYKERNEL_DIR/Image"
+        find "$OUT_DIR/arch/arm64/boot/dts/qcom" -name 'sm8150-v2*.dtb' -exec cat {} + > "$ANYKERNEL_DIR/dtb"
+        if [ -f "$OUT_DIR/arch/arm64/boot/dtbo.img" ]; then
+          cp "$OUT_DIR/arch/arm64/boot/dtbo.img" "$ANYKERNEL_DIR/dtbo.img"
+        fi
+
+        cd "$ANYKERNEL_DIR"
+        zip -r9 "$GITHUB_WORKSPACE/$ZIP_NAME" ./* -x ".git*" -x ".github*" -x "README.md" -x "LICENSE*" > /dev/null
+        cd "$GITHUB_WORKSPACE"
+
+        send_telegram_file "$GITHUB_WORKSPACE/$ZIP_NAME"
+        send_telegram_file "$LOG_FILE"
+        send_telegram_message "✅ Compilation completed for Poco X3 Pro (vayu)! Flashable zip is ready."
+
+    - name: Upload kernel zip artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ZIP_NAME }}
+        path: ${{ github.workspace }}/${{ env.ZIP_NAME }}
+
+    - name: Upload build log artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log-vayu
+        path: ${{ env.LOG_FILE }}
