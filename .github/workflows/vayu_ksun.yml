@@ -63,7 +63,7 @@ jobs:
 
     - name: Clone kernel source
       run: |
-        git clone --depth=1 "$KERNEL_URL" -b "$KERNEL_BRANCH" kernel
+        git clone --depth=1 --recurse-submodules --shallow-submodules "$KERNEL_URL" -b "$KERNEL_BRANCH" kernel
         cd kernel
         echo "KERNEL_DIR=$(pwd)" >> $GITHUB_ENV
 
@@ -100,11 +100,12 @@ jobs:
       if: ${{ github.event.inputs.enable_ksun == 'true' || github.event.inputs.enable_ksun == true }}
       run: |
         cd $KERNEL_DIR
-        if [ ! -d "KernelSU" ] && [ ! -d "drivers/kernelsu" ]; then
+        if [ ! -f "drivers/kernelsu/Makefile" ]; then
+          echo "Setting up KernelSU-Next via setup.sh..."
           curl -LSs "$KSU_URL" | bash -s ${{ github.event.inputs.ksun_branch }}
           echo "CONFIG_KSU=y" >> arch/arm64/configs/vayu_defconfig
         else
-          echo "KernelSU already integrated in kernel source."
+          echo "KernelSU-Next already integrated in kernel source."
         fi
 
     - name: Configure Defconfig & LTO
