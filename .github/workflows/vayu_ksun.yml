@@ -6,7 +6,7 @@ on:
       branch:
         description: "Branch kernel yang akan di-build"
         required: true
-        default: "caf-bore"
+        default: "16-bore"
       toolchain:
         description: "Pilihan Toolchain Clang"
         required: true
@@ -24,7 +24,7 @@ on:
       ksun_branch:
         description: "Branch / Tag KernelSU-Next"
         required: false
-        default: "next"
+        default: "legacy"
       disable_lto:
         description: "Nonaktifkan LTO (Lebih cepat & hemat RAM)"
         required: false
@@ -100,10 +100,14 @@ jobs:
       if: ${{ github.event.inputs.enable_ksun == 'true' || github.event.inputs.enable_ksun == true }}
       run: |
         cd $KERNEL_DIR
+        KSUN_TARGET="${{ github.event.inputs.ksun_branch || 'legacy' }}"
         if [ ! -f "drivers/kernelsu/Makefile" ]; then
-          echo "Setting up KernelSU-Next via setup.sh..."
-          curl -LSs "$KSU_URL" | bash -s ${{ github.event.inputs.ksun_branch }}
+          echo "Setting up KernelSU-Next via setup.sh (branch/tag: $KSUN_TARGET)..."
+          curl -LSs "$KSU_URL" | bash -s "$KSUN_TARGET"
           echo "CONFIG_KSU=y" >> arch/arm64/configs/vayu_defconfig
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> arch/arm64/configs/vayu_defconfig
+          echo "# CONFIG_KPROBES is not set" >> arch/arm64/configs/vayu_defconfig
+          echo "# CONFIG_KRETPROBES is not set" >> arch/arm64/configs/vayu_defconfig
         else
           echo "KernelSU-Next already integrated in kernel source."
         fi
